@@ -2,7 +2,7 @@
 
 A small star-collecting puzzle game where every move can be undone and redone, built on **stacks**.
 
-**Live demo:** _paste your GitHub Pages link here_
+https://moulees21.github.io/Undo-game-ds-project-/
 
 ## DSA concept: Stack (LIFO)
 
