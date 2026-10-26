@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Undo Game – DSA Stack Project</title>
+<style>
+:root{--bg:#1a1626;--card:#262038;--ink:#f4efff;--muted:#a79bc4;--line:#403658;--wall:#4b3f6b;--floor:#2f2745;--star:#ffd166;--me:#06d6a0;--accent:#ef476f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Trebuchet MS",system-ui,sans-serif;padding:20px}
+main{max-width:860px;margin:0 auto}
+h1{margin:0 0 4px;font-size:1.8rem;color:var(--star)}
+.sub{color:var(--muted);margin:0 0 18px}
+.wrap{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+h2{font-size:1.05rem;margin:0 0 10px}
+.board{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;width:min(360px,80vw)}
+.cell{aspect-ratio:1;border-radius:6px;background:var(--floor);display:grid;place-items:center;font-size:1.3rem}
+.cell.w{background:var(--wall)}
+.cell.me::after{content:"";width:60%;height:60%;border-radius:50%;background:var(--me)}
+.cell.s::before{content:"★";color:var(--star)}
+.cell.me.s::before{content:""}
+.side{flex:1;min-width:230px}
+.stats{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);margin-bottom:10px}.stats b{color:var(--ink)}
+.pad{display:grid;grid-template-columns:repeat(3,56px);gap:6px;margin:10px 0}
+.pad button{height:48px;font-size:1.3rem}
+.pad .sp{visibility:hidden}
+button{font:inherit;padding:8px 14px;border-radius:6px;border:1px solid var(--star);background:var(--star);color:#2b2100;cursor:pointer;font-weight:600}
+button.alt{background:transparent;color:var(--star)}
+button.undo{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.stk{display:flex;flex-direction:column-reverse;gap:3px;min-height:44px;max-height:180px;overflow:auto;border:2px solid var(--muted);border-top:none;border-radius:0 0 8px 8px;padding:6px}
+.stk div{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:2px 8px;font:.85rem Consolas,monospace}
+.stk div.top{border:2px solid var(--star);color:var(--star)}
+#msg{min-height:1.5em;color:var(--me);font-weight:700;margin:6px 0 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Undo game</h1>
+<p class="sub">Collect every ★. Every move goes on a stack, so you can undo mistakes one move at a time.</p>
+
+<div class="wrap">
+<section class="box">
+<div class="board" id="board" role="img" aria-label="Game board"></div>
+<p id="msg" role="status"></p>
+</section>
+
+<section class="side">
+<div class="box">
+<div class="stats"><span>Level: <b id="lv">1</b></span><span>Moves: <b id="mv">0</b></span><span>Stars left: <b id="sl">0</b></span></div>
+<div class="pad">
+<span class="sp"></span><button id="up" aria-label="Move up">▲</button><span class="sp"></span>
+<button id="left" aria-label="Move left">◀</button><button id="down" aria-label="Move down">▼</button><button id="right" aria-label="Move right">▶</button>
+</div>
+<div class="row">
+<button class="undo" id="undo">Undo (U)</button>
+<button class="alt" id="redo">Redo (R)</button>
+<button class="alt" id="restart">Restart</button>
+</div>
+<div class="row" style="margin-top:8px"><button class="alt" id="prevL">Previous level</button><button class="alt" id="nextL">Next level</button></div>
+<p style="color:var(--muted);font-size:.85rem;margin-bottom:0">Keys: arrow keys or WASD to move, U to undo, R to redo.</p>
+</div>
+<div class="box">
+<h2>Undo stack (<span id="uc">0</span>)</h2>
+<div class="stk" id="ustack"></div>
+</div>
+<div class="box">
+<h2>Redo stack (<span id="rc">0</span>)</h2>
+<div class="stk" id="rstack"></div>
+</div>
+</section>
+</div>
+</main>
+
+<script>
+// ---- Stack ----
+class Stack {
+  constructor(){ this.items = []; }
+  push(x){ this.items.push(x); }       // O(1)
+  pop(){ return this.items.pop(); }     // O(1)
+  peek(){ return this.items[this.items.length - 1]; }
+  clear(){ this.items = []; }
+  get size(){ return this.items.length; }
+}
+
+// '#' wall, 'P' start, '*' star, '.' floor
+const LEVELS = [
+  ["########","#P...*.#","#.##.#.#","#.*#...#","#.##.#*#","#....#.#","#.*....#","########"],
+  ["########","#P.#..*#","#..#.#.#","#.*...##","#...#.*#","#.#...*#","#...#..#","########"],
+  ["########","#P.*...#","#.#.##.#","#.#*..*#","#.###.##","#*...*.#","#.####.#","########"]
+];
+const DIRS = { up:[-1,0], down:[1,0], left:[0,-1], right:[0,1] };
+const ARROW = { '-1,0':'↑', '1,0':'↓', '0,-1':'←', '0,1':'→' };
+
+const $ = id => document.getElementById(id);
+const undoStack = new Stack(), redoStack = new Stack();
+let level = 0, grid = [], pos = [1,1], won = false;
+
+function load(n){
+  level = n; won = false;
+  grid = LEVELS[n].map(r => r.split(''));
+  grid.forEach((row, r) => row.forEach((ch, c) => { if (ch === 'P'){ pos = [r,c]; grid[r][c] = '.'; } }));
+  undoStack.clear(); redoStack.clear(); $('msg').textContent = ''; draw();
+}
+const starsLeft = () => grid.flat().filter(c => c === '*').length;
+
+function draw(){
+  const b = $('board'); b.innerHTML = '';
+  grid.forEach((row, r) => row.forEach((ch, c) => {
+    const d = document.createElement('div');
+    d.className = 'cell' + (ch === '#' ? ' w' : '') + (ch === '*' ? ' s' : '') + (r === pos[0] && c === pos[1] ? ' me' : '');
+    b.append(d);
+  }));
+  $('lv').textContent = level + 1; $('mv').textContent = undoStack.size; $('sl').textContent = starsLeft();
+  $('uc').textContent = undoStack.size; $('rc').textContent = redoStack.size;
+  $('undo').disabled = undoStack.size === 0; $('redo').disabled = redoStack.size === 0;
+  $('prevL').disabled = level === 0; $('nextL').disabled = level === LEVELS.length - 1;
+  fill($('ustack'), undoStack.items); fill($('rstack'), redoStack.items);
+}
+function fill(el, items){
+  el.innerHTML = '';
+  items.forEach((m, i) => {
+    const d = document.createElement('div');
+    d.className = i === items.length - 1 ? 'top' : '';
+    d.textContent = `${ARROW[m.dr + ',' + m.dc]} ${m.got ? '(took ★)' : ''}`;
+    el.append(d);
+  });
+}
+
+function move(dr, dc){
+  if (won) return;
+  const r = pos[0] + dr, c = pos[1] + dc;
+  if (grid[r][c] === '#') return;
+  const got = grid[r][c] === '*';
+  if (got) grid[r][c] = '.';
+  pos = [r, c];
+  undoStack.push({ dr, dc, got });   // remember how to reverse this move
+  redoStack.clear();                  // a new move wipes the redo history
+  if (starsLeft() === 0){ won = true; $('msg').textContent = `Level cleared in ${undoStack.size} moves!`; }
+  draw();
+}
+function undo(){
+  const m = undoStack.pop(); if (!m) return;
+  if (m.got) grid[pos[0]][pos[1]] = '*';     // put the star back
+  pos = [pos[0] - m.dr, pos[1] - m.dc];      // step back
+  redoStack.push(m); won = false; $('msg').textContent = ''; draw();
+}
+function redo(){
+  const m = redoStack.pop(); if (!m) return;
+  const r = pos[0] + m.dr, c = pos[1] + m.dc;
+  if (m.got) grid[r][c] = '.';
+  pos = [r, c]; undoStack.push(m);
+  if (starsLeft() === 0){ won = true; $('msg').textContent = `Level cleared in ${undoStack.size} moves!`; }
+  draw();
+}
+
+Object.keys(DIRS).forEach(k => $(k).onclick = () => move(...DIRS[k]));
+$('undo').onclick = undo; $('redo').onclick = redo;
+$('restart').onclick = () => load(level);
+$('prevL').onclick = () => load(level - 1); $('nextL').onclick = () => load(level + 1);
+document.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  const map = { arrowup:'up', w:'up', arrowdown:'down', s:'down', arrowleft:'left', a:'left', arrowright:'right', d:'right' };
+  if (map[k]){ e.preventDefault(); move(...DIRS[map[k]]); }
+  else if (k === 'u' || (e.ctrlKey && k === 'z')){ e.preventDefault(); undo(); }
+  else if (k === 'r' || (e.ctrlKey && k === 'y')){ e.preventDefault(); redo(); }
+});
+load(0);
+</script>
+</body>
+</html>
